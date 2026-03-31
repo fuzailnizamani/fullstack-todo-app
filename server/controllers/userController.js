@@ -51,7 +51,7 @@ const loginUser = async (req, res) => {
         const accessToken = JWT.sign(
             { userId: user.id, email: user.email },
             process.env.ACCESS_TOKEN_SECRET,
-            { expiresIn: '15m' }
+            { expiresIn: '1h' }
         );
 
         const refreshToken = JWT.sign(
@@ -69,7 +69,79 @@ const loginUser = async (req, res) => {
     }
 }
 
+// --- Logout User ---
+const logoutUser = async (req, res) => {
+    try {
+        const { refreshToken } = req.body;
+
+        if (!refreshToken) {
+            return res.status(400).json({ success: false, message: 'Refresh token is required' });
+        }
+
+        // Search the database for the user with this token and set it to NULL
+        const sql = 'UPDATE users SET refresh_token = NULL WHERE refresh_token = ?';
+        const [result] = await pool.query(sql, [refreshToken]);
+
+        if (result.affectedRows === 0) {
+            return res.status(400).json({ success: false, message: 'Invalid token or already logged out' });
+        }
+
+        res.status(200).json({ success: true, message: 'Logged out successfully' });
+    } catch (error) {
+        console.error('Error logging out:', error.message);
+        res.status(500).json({ success: false, error: 'Server error during logout' });
+    }
+};
+
+// --- Refresh Token ---
+const refreshAccessToken = async (req, res) => {
+    try {
+        const { refreshToken } = req.body;
+
+        if (!refreshToken) {
+            return res.status(401).json({ success: false, message: 'Refresh token is required' });
+        }
+
+        // 1. Check if the refresh token exists in the database
+        const sql = 'SELECT id, email FROM users WHERE refresh_token = ?';
+        const [rows] = await pool.query(sql, [refreshToken]);
+
+        if (!rows || rows.length === 0) {
+            return res.status(403).json({ success: false, message: 'Invalid refresh token' });
+        }
+
+        const user = rows[0];
+
+        // 2. Verify the refresh token cryptographically
+        jwt.verify(refreshToken, process.env.REFRESH_TOKEN_SECRET, (err, decoded) => {
+            if (err) {
+                // If token is expired or altered, return 403 Forbidden
+                return res.status(403).json({ success: false, message: 'Refresh token expired or invalid' });
+            }
+
+            // 3. Generate a new Access Token
+            const newAccessToken = jwt.sign(
+                { userId: user.id, email: user.email },
+                process.env.ACCESS_TOKEN_SECRET, 
+                { expiresIn: '15m' }
+            );
+
+            // 4. Send the new access token to the client
+            res.status(200).json({
+                success: true,
+                accessToken: newAccessToken
+            });
+        });
+
+    } catch (error) {
+        console.error('Error refreshing token:', error.message);
+        res.status(500).json({ success: false, error: 'Server error' });
+    }
+};
+
 module.exports = {
     registerUser,
-    loginUser
+    loginUser,
+    logoutUser,
+    refreshAccessToken
 }
