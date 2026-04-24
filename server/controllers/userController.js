@@ -30,7 +30,9 @@ const registerUser = async (req, res) => {
 const loginUser = async (req, res) => {
     try {
         const { email, password } = req.body;
+        console.log(email, password);
         if (!email || !password) {
+            console.log('hello');
             return res.status(400).json({ success: false, message: 'Please provide email and password' });
         }
 
